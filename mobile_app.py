@@ -32,8 +32,14 @@ try:
     
     # Load Search Index & Metadata
     faiss_index = faiss.read_index("books.index")
-    df_meta = pd.read_pickle("books_metadata.pkl")
-    df_csv = pd.read_csv("book.csv")
+    # Only load book_id from metadata to save memory
+    full_meta = pd.read_pickle("books_metadata.pkl")
+    df_meta = full_meta[['book_id']].copy()
+    del full_meta # Free up the large metadata object immediately
+    
+    # Load ONLY necessary columns from CSV to save memory
+    needed_cols = ['id', 'book_id', 'title', 'author', 'authors', 'image_url', 'cover_url', 'category', 'genre', 'description']
+    df_csv = pd.read_csv("book.csv", usecols=lambda c: c in needed_cols)
     
     # Normalize CSV columns for easy access
     if 'book_id' in df_csv.columns and 'id' not in df_csv.columns:
