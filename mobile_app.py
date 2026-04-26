@@ -63,7 +63,13 @@ velocity_analyzer = ReadingVelocityAnalyzer()
 def get_book_details(book_id):
     if df_csv is None or df_csv.empty:
         return None
-    matches = df_csv[df_csv['id'] == int(book_id)]
+    # Handle both string and int IDs
+    try:
+        bid = int(book_id)
+        matches = df_csv[df_csv['id'] == bid]
+    except:
+        matches = df_csv[df_csv['id'].astype(str) == str(book_id)]
+        
     if not matches.empty:
         row = matches.iloc[0]
         return {
@@ -152,7 +158,7 @@ def log_velocity():
     return jsonify({"status": "success", "session": session}), 200
 
 # 3. Reading Velocity: Get Stats
-@app.route('/api/mobile/velocity/stats/<int:user_id>/<int:book_id>', methods=['GET'])
+@app.route('/api/mobile/velocity/stats/<string:user_id>/<string:book_id>', methods=['GET'])
 def get_stats(user_id, book_id):
     stats = velocity_analyzer.calculate_velocity(user_id, book_id)
     if "error" in stats:
