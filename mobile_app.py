@@ -9,11 +9,6 @@ from sentence_transformers import SentenceTransformer
 import faiss
 from reading_velocity import ReadingVelocityAnalyzer
 
-import torch
-
-# Limit memory usage for Render Free Tier (512MB limit)
-torch.set_num_threads(1)
-
 # Windows console encoding fix
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -32,14 +27,8 @@ try:
     
     # Load Search Index & Metadata
     faiss_index = faiss.read_index("books.index")
-    # Only load book_id from metadata to save memory
-    full_meta = pd.read_pickle("books_metadata.pkl")
-    df_meta = full_meta[['book_id']].copy()
-    del full_meta # Free up the large metadata object immediately
-    
-    # Load ONLY necessary columns from CSV to save memory
-    needed_cols = ['id', 'book_id', 'title', 'author', 'authors', 'image_url', 'cover_url', 'category', 'genre', 'description']
-    df_csv = pd.read_csv("book.csv", usecols=lambda c: c in needed_cols)
+    df_meta = pd.read_pickle("books_metadata.pkl")
+    df_csv = pd.read_csv("book.csv")
     
     # Normalize CSV columns for easy access
     if 'book_id' in df_csv.columns and 'id' not in df_csv.columns:
@@ -159,6 +148,5 @@ def get_stats(user_id, book_id):
     return jsonify({"status": "success", "data": stats}), 200
 
 if __name__ == '__main__':
-    # Bind to PORT provided by Render, fallback to 5001 for local dev
-    port = int(os.environ.get("PORT", 4000)) 
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Running on 5001 to avoid conflict with existing app.py if running
+    app.run(host='0.0.0.0', port=5001, debug=True)
