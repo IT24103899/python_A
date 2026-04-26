@@ -880,11 +880,12 @@ def internal_error(error):
 # RUN SERVER
 # ============================================
 if __name__ == '__main__':
-    print("🚀 Starting Flask server on http://0.0.0.0:5000")
+    port = int(os.environ.get('PORT', 5000))
+    print(f"🚀 Starting Flask server on http://0.0.0.0:{port}")
     print("Press CTRL+C to stop\n")
     app.run(
         host='0.0.0.0',
-        port=5000,
+        port=port,
         debug=False,
         threaded=True
     )

@@ -148,5 +148,7 @@ def get_stats(user_id, book_id):
     return jsonify({"status": "success", "data": stats}), 200
 
 if __name__ == '__main__':
-    # Running on 5001 to avoid conflict with existing app.py if running
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    # Use the PORT environment variable if available (for Render/Heroku deployment)
+    port = int(os.environ.get('PORT', 5001))
+    # Running on 0.0.0.0 to be accessible from outside the container
+    app.run(host='0.0.0.0', port=port)
