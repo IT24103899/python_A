@@ -9,6 +9,11 @@ from sentence_transformers import SentenceTransformer
 import faiss
 from reading_velocity import ReadingVelocityAnalyzer
 
+import torch
+
+# Limit memory usage for Render Free Tier (512MB limit)
+torch.set_num_threads(1)
+
 # Windows console encoding fix
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -148,5 +153,6 @@ def get_stats(user_id, book_id):
     return jsonify({"status": "success", "data": stats}), 200
 
 if __name__ == '__main__':
-    # Running on 5001 to avoid conflict with existing app.py if running
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    # Bind to PORT provided by Render, fallback to 5001 for local dev
+    port = int(os.environ.get("PORT", 4000)) 
+    app.run(host='0.0.0.0', port=port, debug=False)
