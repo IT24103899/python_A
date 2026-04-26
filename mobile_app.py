@@ -16,28 +16,41 @@ if sys.platform == 'win32':
 app = Flask(__name__)
 CORS(app)
 
+import torch
+# CRITICAL: Limit memory usage for Render Free Tier
+torch.set_num_threads(1)
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 # ============================================
 # INITIALIZE AI MODELS & DATA
 # ============================================
-print("--- Initializing Mobile AI Engine ---")
+print("--- Initializing Mobile AI Engine (LITE MODE) ---")
 
 try:
-    # Load Semantic Search Model
-    model = SentenceTransformer('all-MiniLM-L6-v2')
-    
-    # Load Search Index & Metadata
+    # 1. Load Search Index & Metadata FIRST (smaller)
     faiss_index = faiss.read_index("books.index")
     df_meta = pd.read_pickle("books_metadata.pkl")
-    df_csv = pd.read_csv("book.csv")
     
-    # Normalize CSV columns for easy access
+    # 2. Load CSV with ONLY necessary columns to save RAM
+    # We only need: id/book_id, title, author/authors, image_url, description
+    needed_cols = ['id', 'book_id', 'title', 'author', 'authors', 'image_url', 'cover_url', 'description', 'category', 'genre']
+    available_cols = pd.read_csv("book.csv", nrows=0).columns.tolist()
+    use_cols = [c for c in needed_cols if c in available_cols]
+    
+    df_csv = pd.read_csv("book.csv", usecols=use_cols)
+    
+    # Normalize CSV columns
     if 'book_id' in df_csv.columns and 'id' not in df_csv.columns:
         df_csv['id'] = df_csv['book_id']
+    
+    # 3. Load Semantic Search Model LAST
+    print("Loading SentenceTransformer (this takes ~300MB RAM)...")
+    model = SentenceTransformer('all-MiniLM-L6-v2')
     
     print("✓ All models and datasets loaded successfully")
 except Exception as e:
     print(f"✗ Initialization error: {e}")
-    # We continue so the server can start, but endpoints might fail
     model = None
     faiss_index = None
 
