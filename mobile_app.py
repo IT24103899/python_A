@@ -9,6 +9,7 @@ from sentence_transformers import SentenceTransformer
 import faiss
 from reading_velocity import ReadingVelocityAnalyzer
 import traceback
+import joblib
 
 # Windows console encoding fix
 if sys.platform == 'win32':
@@ -49,8 +50,8 @@ try:
     faiss_index = faiss.read_index("books.index")
     print("✓ FAISS index loaded")
     
-    print("Loading metadata pickle...")
-    df_meta = pd.read_pickle("books_metadata.pkl")
+    print("Loading metadata with joblib...")
+    df_meta = joblib.load("books_metadata.pkl")
     print("✓ Metadata loaded")
     
     # 2. Load CSV with ONLY necessary columns to save RAM
