@@ -8,6 +8,7 @@ from flask_cors import CORS
 from sentence_transformers import SentenceTransformer
 import faiss
 from reading_velocity import ReadingVelocityAnalyzer
+import traceback
 
 # Windows console encoding fix
 if sys.platform == 'win32':
@@ -27,18 +28,39 @@ os.environ["MKL_NUM_THREADS"] = "1"
 # ============================================
 print("--- Initializing Mobile AI Engine (LITE MODE) ---")
 
+model = None
+faiss_index = None
+df_meta = None
+df_csv = None
+velocity_analyzer = None
+INIT_ERROR = None
+
 try:
+    # Check if data files exist
+    if not os.path.exists("books.index"):
+        raise FileNotFoundError("books.index not found. Make sure data files are present.")
+    if not os.path.exists("books_metadata.pkl"):
+        raise FileNotFoundError("books_metadata.pkl not found. Make sure data files are present.")
+    if not os.path.exists("book.csv"):
+        raise FileNotFoundError("book.csv not found. Make sure data files are present.")
+    
     # 1. Load Search Index & Metadata FIRST (smaller)
+    print("Loading FAISS index...")
     faiss_index = faiss.read_index("books.index")
+    print("✓ FAISS index loaded")
+    
+    print("Loading metadata pickle...")
     df_meta = pd.read_pickle("books_metadata.pkl")
+    print("✓ Metadata loaded")
     
     # 2. Load CSV with ONLY necessary columns to save RAM
-    # We only need: id/book_id, title, author/authors, image_url, description
+    print("Loading book CSV with selective columns...")
     needed_cols = ['id', 'book_id', 'title', 'author', 'authors', 'image_url', 'cover_url', 'description', 'category', 'genre']
     available_cols = pd.read_csv("book.csv", nrows=0).columns.tolist()
     use_cols = [c for c in needed_cols if c in available_cols]
     
     df_csv = pd.read_csv("book.csv", usecols=use_cols)
+    print(f"✓ Book CSV loaded ({len(df_csv)} books)")
     
     # Normalize CSV columns
     if 'book_id' in df_csv.columns and 'id' not in df_csv.columns:
@@ -47,15 +69,23 @@ try:
     # 3. Load Semantic Search Model LAST
     print("Loading SentenceTransformer (this takes ~300MB RAM)...")
     model = SentenceTransformer('all-MiniLM-L6-v2')
+    print("✓ SentenceTransformer loaded")
     
-    print("✓ All models and datasets loaded successfully")
+    # Initialize Reading Velocity Engine
+    print("Initializing Reading Velocity Engine...")
+    velocity_analyzer = ReadingVelocityAnalyzer()
+    print("✓ Reading Velocity Engine initialized")
+    
+    print("✓✓✓ All models and datasets loaded successfully ✓✓✓")
+    
 except Exception as e:
+    INIT_ERROR = str(e)
     print(f"✗ Initialization error: {e}")
+    print(f"Traceback:\n{traceback.format_exc()}")
     model = None
     faiss_index = None
-
-# Initialize Reading Velocity Engine
-velocity_analyzer = ReadingVelocityAnalyzer()
+    df_meta = None
+    df_csv = None
 
 # ============================================
 # HELPER FUNCTIONS
@@ -86,9 +116,23 @@ def get_book_details(book_id):
 # ENDPOINTS
 # ============================================
 
+# 0. Health Check
 @app.route('/api/mobile/health', methods=['GET'])
 def health():
-    return jsonify({"status": "active", "service": "Mobile AI Engine"}), 200
+    if INIT_ERROR:
+        return jsonify({
+            "status": "error",
+            "service": "Mobile AI Engine",
+            "error": INIT_ERROR,
+            "models_loaded": False
+        }), 500
+    
+    return jsonify({
+        "status": "active",
+        "service": "Mobile AI Engine",
+        "models_loaded": model is not None and faiss_index is not None,
+        "message": "✓ All systems operational"
+    }), 200
 
 # 1. Recommendation by IDEA (Semantic Search)
 @app.route('/api/mobile/recommend/idea', methods=['POST'])
@@ -101,7 +145,11 @@ def recommend_idea():
         return jsonify({"error": "No idea provided"}), 400
     
     if not model or faiss_index is None:
-        return jsonify({"error": "AI Engine models not loaded"}), 500
+        return jsonify({
+            "error": "AI Engine models not loaded",
+            "details": INIT_ERROR,
+            "message": "System is initializing or data files are missing"
+        }), 503
 
     try:
         # 1. Encode the idea into a vector

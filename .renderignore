@@ -1,0 +1,11 @@
+# Don't include these in the Render build
+.git
+.github
+__pycache__
+*.pyc
+.DS_Store
+.env.local
+*.log
+node_modules
+.venv
+*.egg-info
