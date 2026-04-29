@@ -15,8 +15,16 @@ import joblib
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
+# ============================================
+# FLASK SETUP
+# ============================================
 app = Flask(__name__)
 CORS(app)
+
+# Hook to load models before first request
+@app.before_request
+def before_request():
+    initialize_models()
 
 import torch
 # CRITICAL: Limit memory usage for Render Free Tier
@@ -25,68 +33,79 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
 # ============================================
-# INITIALIZE AI MODELS & DATA
+# LAZY LOAD AI MODELS & DATA (on first request)
 # ============================================
-print("--- Initializing Mobile AI Engine (LITE MODE) ---")
-
+# Don't load at startup - instead load on first request to avoid timeout
 model = None
 faiss_index = None
 df_meta = None
 df_csv = None
 velocity_analyzer = None
 INIT_ERROR = None
+MODELS_LOADED = False
 
-try:
-    # Check if data files exist
-    if not os.path.exists("books.index"):
-        raise FileNotFoundError("books.index not found. Make sure data files are present.")
-    if not os.path.exists("books_metadata.pkl"):
-        raise FileNotFoundError("books_metadata.pkl not found. Make sure data files are present.")
-    if not os.path.exists("book.csv"):
-        raise FileNotFoundError("book.csv not found. Make sure data files are present.")
+def initialize_models():
+    """Lazy load models on first request"""
+    global model, faiss_index, df_meta, df_csv, velocity_analyzer, INIT_ERROR, MODELS_LOADED
     
-    # 1. Load Search Index & Metadata FIRST (smaller)
-    print("Loading FAISS index...")
-    faiss_index = faiss.read_index("books.index")
-    print("✓ FAISS index loaded")
+    if MODELS_LOADED:
+        return  # Already loaded
     
-    print("Loading metadata with joblib...")
-    df_meta = joblib.load("books_metadata.pkl")
-    print("✓ Metadata loaded")
-    
-    # 2. Load CSV with ONLY necessary columns to save RAM
-    print("Loading book CSV with selective columns...")
-    needed_cols = ['id', 'book_id', 'title', 'author', 'authors', 'image_url', 'cover_url', 'description', 'category', 'genre']
-    available_cols = pd.read_csv("book.csv", nrows=0).columns.tolist()
-    use_cols = [c for c in needed_cols if c in available_cols]
-    
-    df_csv = pd.read_csv("book.csv", usecols=use_cols)
-    print(f"✓ Book CSV loaded ({len(df_csv)} books)")
-    
-    # Normalize CSV columns
-    if 'book_id' in df_csv.columns and 'id' not in df_csv.columns:
-        df_csv['id'] = df_csv['book_id']
-    
-    # 3. Load Semantic Search Model LAST
-    print("Loading SentenceTransformer (this takes ~300MB RAM)...")
-    model = SentenceTransformer('all-MiniLM-L6-v2')
-    print("✓ SentenceTransformer loaded")
-    
-    # Initialize Reading Velocity Engine
-    print("Initializing Reading Velocity Engine...")
-    velocity_analyzer = ReadingVelocityAnalyzer()
-    print("✓ Reading Velocity Engine initialized")
-    
-    print("✓✓✓ All models and datasets loaded successfully ✓✓✓")
-    
-except Exception as e:
-    INIT_ERROR = str(e)
-    print(f"✗ Initialization error: {e}")
-    print(f"Traceback:\n{traceback.format_exc()}")
-    model = None
-    faiss_index = None
-    df_meta = None
-    df_csv = None
+    print("--- Initializing Mobile AI Engine (LITE MODE) ---")
+    try:
+        # Check if data files exist
+        if not os.path.exists("books.index"):
+            raise FileNotFoundError("books.index not found. Make sure data files are present.")
+        if not os.path.exists("books_metadata.pkl"):
+            raise FileNotFoundError("books_metadata.pkl not found. Make sure data files are present.")
+        if not os.path.exists("book.csv"):
+            raise FileNotFoundError("book.csv not found. Make sure data files are present.")
+        
+        # 1. Load Search Index & Metadata FIRST (smaller)
+        print("Loading FAISS index...")
+        faiss_index = faiss.read_index("books.index")
+        print("✓ FAISS index loaded")
+        
+        print("Loading metadata with joblib...")
+        df_meta = joblib.load("books_metadata.pkl")
+        print("✓ Metadata loaded")
+        
+        # 2. Load CSV with ONLY necessary columns to save RAM
+        print("Loading book CSV with selective columns...")
+        needed_cols = ['id', 'book_id', 'title', 'author', 'authors', 'image_url', 'cover_url', 'description', 'category', 'genre']
+        available_cols = pd.read_csv("book.csv", nrows=0).columns.tolist()
+        use_cols = [c for c in needed_cols if c in available_cols]
+        
+        df_csv = pd.read_csv("book.csv", usecols=use_cols)
+        print(f"✓ Book CSV loaded ({len(df_csv)} books)")
+        
+        # Normalize CSV columns
+        if 'book_id' in df_csv.columns and 'id' not in df_csv.columns:
+            df_csv['id'] = df_csv['book_id']
+        
+        # 3. Load Semantic Search Model LAST
+        print("Loading SentenceTransformer (this takes ~300MB RAM)...")
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        print("✓ SentenceTransformer loaded")
+        
+        # Initialize Reading Velocity Engine
+        print("Initializing Reading Velocity Engine...")
+        velocity_analyzer = ReadingVelocityAnalyzer()
+        print("✓ Reading Velocity Engine initialized")
+        
+        MODELS_LOADED = True
+        INIT_ERROR = None
+        print("✓✓✓ All models and datasets loaded successfully ✓✓✓")
+        
+    except Exception as e:
+        INIT_ERROR = str(e)
+        print(f"✗ Initialization error: {e}")
+        print(f"Traceback:\n{traceback.format_exc()}")
+        model = None
+        faiss_index = None
+        df_meta = None
+        df_csv = None
+        MODELS_LOADED = False
 
 # ============================================
 # HELPER FUNCTIONS
@@ -128,10 +147,18 @@ def health():
             "models_loaded": False
         }), 500
     
+    if not MODELS_LOADED:
+        return jsonify({
+            "status": "initializing",
+            "service": "Mobile AI Engine",
+            "message": "Models are loading, please try again in a moment",
+            "models_loaded": False
+        }), 503
+    
     return jsonify({
         "status": "active",
         "service": "Mobile AI Engine",
-        "models_loaded": model is not None and faiss_index is not None,
+        "models_loaded": MODELS_LOADED,
         "message": "✓ All systems operational"
     }), 200
 
