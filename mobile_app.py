@@ -2,20 +2,18 @@ import os
 import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import google.generativeai as genai
+from google import genai
 
 app = Flask(__name__)
 CORS(app)
 
 # --- CONFIGURATION ---
 GEMINI_API_KEY = "AIzaSyBXfzVlohPOGg9Pzh33nEDq8hJlqy1lWcI"
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Load dataset once
 try:
     df = pd.read_csv('book.csv')
-    # Clean up titles for matching
     df['clean_title'] = df['title'].str.strip()
     available_titles = df['clean_title'].tolist()
     print(f"✓ Loaded {len(df)} books for AI lookup")
@@ -28,9 +26,9 @@ except Exception as e:
 def health():
     return jsonify({
         "status": "active",
-        "engine": "Google Gemini 1.5 Pro",
+        "engine": "Google Gemini 1.5 Flash (v2 SDK)",
         "books_indexed": len(df),
-        "message": "AI Engine is Ready and Fast! 🚀"
+        "message": "AI Engine is Ready and Clean! ✨"
     })
 
 @app.route('/api/mobile/recommend/idea', methods=['POST'])
@@ -42,7 +40,6 @@ def recommend_by_idea():
         return jsonify({"error": "No idea provided"}), 400
 
     try:
-        # Construct a smart prompt
         prompt = f"""
         You are an expert librarian for an E-Library app.
         User's interest: "{idea}"
@@ -51,17 +48,18 @@ def recommend_by_idea():
         Return ONLY the exact titles of the books, one per line. No extra text.
         
         Our Catalog (Titles):
-        {", ".join(available_titles[:200])} 
+        {", ".join(available_titles[:250])} 
         """
-        # (Using first 200 to keep prompt size reasonable, usually enough for diversity)
 
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
+        
         suggested_titles = [line.strip() for line in response.text.split('\n') if line.strip()]
 
-        # Match suggested titles back to our dataframe
         results = []
         for title in suggested_titles:
-            # Flexible matching: check if title matches any part of our clean_title
             match = df[df['clean_title'].str.contains(title, case=False, na=False)].head(1)
             if not match.empty:
                 results.append({
@@ -72,9 +70,7 @@ def recommend_by_idea():
                     "description": match.iloc[0]['description']
                 })
 
-        # Fallback: If Gemini didn't return enough matches or failed
         if len(results) < 2:
-            # Simple keyword match as fallback
             keyword_matches = df[df['title'].str.contains(idea.split()[0], case=False, na=False)].head(5)
             for _, row in keyword_matches.iterrows():
                 if not any(r['_id'] == str(row['book_id']) for r in results):
@@ -89,10 +85,9 @@ def recommend_by_idea():
         return jsonify(results[:10])
 
     except Exception as e:
-        print(f"Gemini Error: {e}")
+        print(f"Gemini SDK Error: {e}")
         return jsonify({"error": "AI Engine busy", "details": str(e)}), 503
 
 if __name__ == '__main__':
-    # Use port 10000 for Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
