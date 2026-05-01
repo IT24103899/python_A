@@ -8,5 +8,4 @@ faiss-cpu==1.13.2
 scikit-learn>=1.5.0
 torch==2.2.2+cpu
 joblib>=1.5.0
-google-generativeai
 gunicorn==21.2.0
