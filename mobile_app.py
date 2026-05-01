@@ -1,49 +1,49 @@
 import os
 import pandas as pd
-import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from sentence_transformers import SentenceTransformer
-import faiss
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
 CORS(app)
 
-# --- GLOBAL MODELS (Lazy Loading) ---
-model = None
-index = None
+# --- GLOBAL MODELS (Pre-loaded & Ultra-Light) ---
+vectorizer = TfidfVectorizer(stop_words='english')
+tfidf_matrix = None
 df = None
 
 def load_resources():
-    global model, index, df
-    if model is None:
-        print("📥 Loading AI models (this happens once)...")
-        # Use a very small, fast model
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-        
-        # Load books
+    global tfidf_matrix, df
+    try:
+        print("📥 Loading Light-AI Engine...")
         df = pd.read_csv('book.csv')
-        df['combined'] = df['title'].fillna('') + " " + df['authors'].fillna('') + " " + df['description'].fillna('')
+        df['combined'] = (
+            df['title'].fillna('') + " " + 
+            df['authors'].fillna('') + " " + 
+            df['description'].fillna('')
+        ).str.lower()
         
-        # Create FAISS index
-        embeddings = model.encode(df['combined'].tolist(), show_progress_bar=False)
-        dimension = embeddings.shape[1]
-        index = faiss.IndexFlatL2(dimension)
-        index.add(np.array(embeddings).astype('float32'))
-        print("✓ AI Engine initialized locally!")
+        # This is near-instant for 1,200 books
+        tfidf_matrix = vectorizer.fit_transform(df['combined'])
+        print(f"✓ AI Engine Ready! ({len(df)} books indexed)")
+    except Exception as e:
+        print(f"Error loading book.csv: {e}")
+        df = pd.DataFrame()
+
+# Load immediately on startup (Safe because it's light)
+load_resources()
 
 @app.route('/api/mobile/health', methods=['GET'])
 def health():
     return jsonify({
         "status": "active",
-        "engine": "Local Sentence-Transformer (Optimized)",
-        "message": "AI Engine is Ready! 🚀"
+        "engine": "Light-AI (TF-IDF)",
+        "message": "AI Engine is Instant and Ready! ⚡"
     })
 
 @app.route('/api/mobile/recommend/idea', methods=['POST'])
 def recommend_by_idea():
-    load_resources() # Ensure loaded
-    
     data = request.json
     idea = data.get('idea', '')
 
@@ -51,15 +51,30 @@ def recommend_by_idea():
         return jsonify({"error": "No idea provided"}), 400
 
     try:
-        # Vector search
-        query_vector = model.encode([idea])
-        k = 10
-        D, I = index.search(np.array(query_vector).astype('float32'), k)
+        # Transform query and calculate similarity
+        query_vec = vectorizer.transform([idea.lower()])
+        cosine_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
+        
+        # Get top indices
+        top_indices = cosine_sim.argsort()[-10:][::-1]
         
         results = []
-        for idx in I[0]:
-            if idx < len(df):
+        for idx in top_indices:
+            if cosine_sim[idx] > 0: # Only return actual matches
                 row = df.iloc[idx]
+                results.append({
+                    "_id": str(row['book_id']),
+                    "title": row['title'],
+                    "author": row['authors'],
+                    "coverUrl": row['image_url'],
+                    "description": row['description']
+                })
+
+        # Fallback to simple title search if no AI matches
+        if not results:
+            keyword = idea.split()[0].lower()
+            matches = df[df['title'].str.lower().str.contains(keyword, na=False)].head(5)
+            for _, row in matches.iterrows():
                 results.append({
                     "_id": str(row['book_id']),
                     "title": row['title'],
@@ -71,7 +86,7 @@ def recommend_by_idea():
         return jsonify(results)
 
     except Exception as e:
-        print(f"Local AI Error: {e}")
+        print(f"AI Error: {e}")
         return jsonify({"error": "AI calculation failed", "details": str(e)}), 500
 
 if __name__ == '__main__':
