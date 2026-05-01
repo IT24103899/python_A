@@ -51,39 +51,48 @@ def recommend_by_idea():
         return jsonify({"error": "No idea provided"}), 400
 
     try:
+        print(f"🔍 AI searching for: {idea}")
         # Transform query and calculate similarity
         query_vec = vectorizer.transform([idea.lower()])
         cosine_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
         
         # Get top indices
-        top_indices = cosine_sim.argsort()[-10:][::-1]
+        top_indices = cosine_sim.argsort()[-15:][::-1]
         
         results = []
         for idx in top_indices:
-            if cosine_sim[idx] > 0: # Only return actual matches
+            score = cosine_sim[idx]
+            if score > 0.05: # Reasonable threshold
                 row = df.iloc[idx]
                 results.append({
                     "_id": str(row['book_id']),
                     "title": row['title'],
                     "author": row['authors'],
                     "coverUrl": row['image_url'],
-                    "description": row['description']
+                    "description": row['description'],
+                    "score": float(score)
                 })
 
-        # Fallback to simple title search if no AI matches
-        if not results:
-            keyword = idea.split()[0].lower()
-            matches = df[df['title'].str.lower().str.contains(keyword, na=False)].head(5)
-            for _, row in matches.iterrows():
-                results.append({
-                    "_id": str(row['book_id']),
-                    "title": row['title'],
-                    "author": row['authors'],
-                    "coverUrl": row['image_url'],
-                    "description": row['description']
-                })
+        # Fallback: If AI results are low, do a direct keyword search
+        if len(results) < 3:
+            keywords = idea.lower().split()
+            for kw in keywords:
+                if len(kw) < 3: continue
+                matches = df[df['title'].str.lower().str.contains(kw, na=False)].head(5)
+                for _, row in matches.iterrows():
+                    # Avoid duplicates
+                    if not any(r['_id'] == str(row['book_id']) for r in results):
+                        results.append({
+                            "_id": str(row['book_id']),
+                            "title": row['title'],
+                            "author": row['authors'],
+                            "coverUrl": row['image_url'],
+                            "description": row['description'],
+                            "score": 0.0
+                        })
 
-        return jsonify(results)
+        print(f"✅ Found {len(results)} matches")
+        return jsonify(results[:15])
 
     except Exception as e:
         print(f"AI Error: {e}")
