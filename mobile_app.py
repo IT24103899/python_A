@@ -2,14 +2,15 @@ import os
 import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from google import genai
+import google.generativeai as genai
 
 app = Flask(__name__)
 CORS(app)
 
 # --- CONFIGURATION ---
 GEMINI_API_KEY = "AIzaSyBXfzVlohPOGg9Pzh33nEDq8hJlqy1lWcI"
-client = genai.Client(api_key=GEMINI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # Load dataset once
 try:
@@ -26,9 +27,9 @@ except Exception as e:
 def health():
     return jsonify({
         "status": "active",
-        "engine": "Google Gemini 1.5 Flash (v2 SDK)",
+        "engine": "Google Gemini 1.5 Flash (v1 SDK)",
         "books_indexed": len(df),
-        "message": "AI Engine is Ready and Clean! ✨"
+        "message": "AI Engine is Ready and Stable! 💎"
     })
 
 @app.route('/api/mobile/recommend/idea', methods=['POST'])
@@ -51,15 +52,12 @@ def recommend_by_idea():
         {", ".join(available_titles[:250])} 
         """
 
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt
-        )
-        
+        response = model.generate_content(prompt)
         suggested_titles = [line.strip() for line in response.text.split('\n') if line.strip()]
 
         results = []
         for title in suggested_titles:
+            # Clean matching
             match = df[df['clean_title'].str.contains(title, case=False, na=False)].head(1)
             if not match.empty:
                 results.append({
@@ -85,7 +83,7 @@ def recommend_by_idea():
         return jsonify(results[:10])
 
     except Exception as e:
-        print(f"Gemini SDK Error: {e}")
+        print(f"Gemini Error: {e}")
         return jsonify({"error": "AI Engine busy", "details": str(e)}), 503
 
 if __name__ == '__main__':
