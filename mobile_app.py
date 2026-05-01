@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 import os
 import sys
-import pandas as pd
-import numpy as np
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from sentence_transformers import SentenceTransformer
-import faiss
-from reading_velocity import ReadingVelocityAnalyzer
 import traceback
-import joblib
 
 # Windows console encoding fix
 if sys.platform == 'win32':
@@ -22,12 +16,6 @@ app = Flask(__name__)
 CORS(app)
 
 # No before_request hook to avoid OOM on arbitrary paths
-
-import torch
-# CRITICAL: Limit memory usage for Render Free Tier
-torch.set_num_threads(1)
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
 
 # ============================================
 # LAZY LOAD AI MODELS & DATA (on first request)
@@ -50,6 +38,18 @@ def initialize_models():
     
     print("--- Initializing Mobile AI Engine (LITE MODE) ---")
     try:
+        import pandas as pd
+        import numpy as np
+        from sentence_transformers import SentenceTransformer
+        import faiss
+        from reading_velocity import ReadingVelocityAnalyzer
+        import joblib
+        import torch
+        
+        # CRITICAL: Limit memory usage for Render Free Tier
+        torch.set_num_threads(1)
+        os.environ["OMP_NUM_THREADS"] = "1"
+        os.environ["MKL_NUM_THREADS"] = "1"
         # Check if data files exist
         if not os.path.exists("books.index"):
             raise FileNotFoundError("books.index not found. Make sure data files are present.")
