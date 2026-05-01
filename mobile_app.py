@@ -32,6 +32,14 @@ def health():
         "message": "AI Engine is Ready and Stable! 💎"
     })
 
+@app.route('/api/mobile/list-models', methods=['GET'])
+def list_models():
+    try:
+        models = [m.name for m in genai.list_models()]
+        return jsonify({"models": models})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/mobile/recommend/idea', methods=['POST'])
 def recommend_by_idea():
     data = request.json
