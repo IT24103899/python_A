@@ -1,16 +1,15 @@
 import os
 import pandas as pd
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import google.generativeai as genai
 
 app = Flask(__name__)
 CORS(app)
 
 # --- CONFIGURATION ---
 GEMINI_API_KEY = "AIzaSyBXfzVlohPOGg9Pzh33nEDq8hJlqy1lWcI"
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
 # Load dataset once
 try:
@@ -27,18 +26,10 @@ except Exception as e:
 def health():
     return jsonify({
         "status": "active",
-        "engine": "Google Gemini 1.5 Flash (v1 SDK)",
+        "engine": "Google Gemini 1.5 Flash (Direct v1)",
         "books_indexed": len(df),
-        "message": "AI Engine is Ready and Stable! 💎"
+        "message": "AI Engine is Ready and Connected! 🚀"
     })
-
-@app.route('/api/mobile/list-models', methods=['GET'])
-def list_models():
-    try:
-        models = [m.name for m in genai.list_models()]
-        return jsonify({"models": models})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/mobile/recommend/idea', methods=['POST'])
 def recommend_by_idea():
@@ -50,7 +41,7 @@ def recommend_by_idea():
 
     try:
         prompt = f"""
-        You are an expert librarian for an E-Library app.
+        You are an expert librarian for an E-Library app. 
         User's interest: "{idea}"
         
         Task: Pick the 5 most relevant books from our catalog that match this interest.
@@ -60,8 +51,23 @@ def recommend_by_idea():
         {", ".join(available_titles[:250])} 
         """
 
-        response = model.generate_content(prompt)
-        suggested_titles = [line.strip() for line in response.text.split('\n') if line.strip()]
+        # Direct REST API call to force v1 version
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }]
+        }
+        
+        response = requests.post(GEMINI_URL, json=payload, timeout=20)
+        response_data = response.json()
+
+        if response.status_code != 200:
+            print(f"Gemini API Error: {response_data}")
+            return jsonify({"error": "AI API Error", "details": response_data}), response.status_code
+
+        # Extract text from Gemini response
+        raw_text = response_data['candidates'][0]['content']['parts'][0]['text']
+        suggested_titles = [line.strip() for line in raw_text.split('\n') if line.strip()]
 
         results = []
         for title in suggested_titles:
@@ -76,6 +82,7 @@ def recommend_by_idea():
                     "description": match.iloc[0]['description']
                 })
 
+        # Fallback keyword matching
         if len(results) < 2:
             keyword_matches = df[df['title'].str.contains(idea.split()[0], case=False, na=False)].head(5)
             for _, row in keyword_matches.iterrows():
@@ -91,8 +98,8 @@ def recommend_by_idea():
         return jsonify(results[:10])
 
     except Exception as e:
-        print(f"Gemini Error: {e}")
-        return jsonify({"error": "AI Engine busy", "details": str(e)}), 503
+        print(f"Server Error: {e}")
+        return jsonify({"error": "Server busy", "details": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
