@@ -83,10 +83,12 @@ except Exception as e:
 # ============================================
 # LOAD DATABASE
 # ============================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 try:
     print("\n🗃️  Loading FAISS index...")
-    faiss_index = faiss.read_index("books.index")
-    df_meta = pd.read_pickle("books_metadata.pkl")
+    faiss_index = faiss.read_index(os.path.join(BASE_DIR, "books.index"))
+    df_meta = pd.read_pickle(os.path.join(BASE_DIR, "books_metadata.pkl"))
     print(f"✓ FAISS index loaded ({len(df_meta)} books)")
 except Exception as e:
     print(f"✗ Error loading FAISS index: {e}")
@@ -95,7 +97,7 @@ except Exception as e:
 
 try:
     print("\n📖 Loading book data from CSV...")
-    df_csv = pd.read_csv("book.csv")
+    df_csv = pd.read_csv(os.path.join(BASE_DIR, "book.csv"))
     print(f"✓ Book CSV loaded ({len(df_csv)} books)")
     
     # Normalize ID column
