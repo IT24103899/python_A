@@ -3,73 +3,54 @@ import pandas as pd
 import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import logging
-import pickle
-
-# Advanced AI Imports
-try:
-    import faiss
-    from sentence_transformers import SentenceTransformer
-    ADVANCED_AI_AVAILABLE = True
-except ImportError:
-    ADVANCED_AI_AVAILABLE = False
-
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
+CORS(app)
 
-# --- GLOBAL MODELS ---
+# --- GLOBAL MODELS (Ultra-Light for Render Free Tier) ---
 df = None
-index = None
-model = None
 vectorizer = None
 tfidf_matrix = None
 
 def load_resources():
-    global df, index, model, vectorizer, tfidf_matrix
+    global df, vectorizer, tfidf_matrix
     
     if df is not None:
         return True
 
     try:
-        # 1. Load the main book database
         if os.path.exists('book.csv'):
             df = pd.read_csv('book.csv')
-            print(f"✓ Database loaded: {len(df)} books")
-            
-            # Clean dataframe to prevent JSON errors
+            # Clean data
             for col in ['title', 'authors', 'image_url', 'description']:
                 if col in df.columns:
-                    df[col] = df[col].fillna('Unknown')
+                    df[col] = df[col].fillna('')
+            
+            print(f"✓ Database loaded: {len(df)} books")
+            
+            # Optimized Search Text (Smarts without the heavy memory)
+            df['search_content'] = (
+                df['title'].astype(str) + " " + 
+                df['authors'].astype(str) + " " + 
+                df['description'].astype(str)
+            ).str.lower()
+            
+            # Bigram TF-IDF (Smarter than basic keywords)
+            vectorizer = TfidfVectorizer(
+                stop_words='english',
+                ngram_range=(1, 2), # Understands pairs of words
+                max_features=5000
+            )
+            tfidf_matrix = vectorizer.fit_transform(df['search_content'])
+            print("✅ Optimized AI Engine Ready!")
+            return True
         else:
-            print("❌ Error: book.csv not found!")
-            df = pd.DataFrame()
+            print("❌ Error: book.csv missing")
             return False
-
-        # 2. Try loading Advanced Semantic AI (FAISS)
-        if ADVANCED_AI_AVAILABLE and os.path.exists('books.index'):
-            print("🧠 Loading Advanced Semantic AI...")
-            index = faiss.read_index('books.index')
-            model = SentenceTransformer('all-MiniLM-L6-v2')
-            print("✅ Semantic Engine Ready!")
-        
-        # 3. Always prepare TF-IDF as a robust fallback
-        print("⚡ Preparing TF-IDF Fallback Engine...")
-        # Create a rich text field for searching
-        df['search_text'] = (
-            df['title'].astype(str) + " " + 
-            df['authors'].astype(str) + " " + 
-            df.get('description', pd.Series(['']*len(df))).astype(str)
-        ).str.lower()
-        
-        vectorizer = TfidfVectorizer(stop_words='english')
-        tfidf_matrix = vectorizer.fit_transform(df['search_text'])
-        print("✅ Fallback Engine Ready!")
-        return True
-        
     except Exception as e:
-        print(f"❌ Error during AI initialization: {e}")
+        print(f"❌ Init Error: {e}")
         return False
 
 @app.after_request
@@ -84,8 +65,8 @@ def health():
     load_resources()
     return jsonify({
         "status": "active",
-        "has_data": len(df) > 0 if df is not None else False,
-        "engine": "Advanced (Semantic)" if index is not None else "Basic (TF-IDF)"
+        "engine": "Optimized-Light",
+        "books_indexed": len(df) if df is not None else 0
     })
 
 @app.route('/api/mobile/recommend/idea', methods=['POST'])
@@ -96,82 +77,55 @@ def recommend_by_idea():
     if not data or 'idea' not in data:
         return jsonify([])
     
-    idea = data['idea'].strip()
+    idea = data['idea'].strip().lower()
     if not idea:
         return jsonify([])
 
-    results = []
-    seen_ids = set()
-
     try:
-        # --- PHASE 1: SEMANTIC SEARCH (ADVANCED) ---
-        if index is not None and model is not None:
-            print(f"🔍 [Semantic] Idea: {idea}")
-            query_vector = model.encode([idea]).astype('float32')
-            # Get more candidates than needed to filter safely
-            distances, indices = index.search(query_vector, 30)
-            
-            for idx in indices[0]:
-                if 0 <= idx < len(df):
-                    row = df.iloc[idx]
-                    bid = str(row['book_id'])
-                    if bid not in seen_ids:
-                        results.append({
-                            "_id": bid,
-                            "title": str(row['title']),
-                            "author": str(row['authors']),
-                            "coverUrl": str(row['image_url']),
-                            "description": str(row.get('description', ''))[:150] + "..."
-                        })
-                        seen_ids.add(bid)
-                if len(results) >= 15: break
+        # Phase 1: Vector Search (Smart Matching)
+        query_vec = vectorizer.transform([idea])
+        cosine_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
+        top_indices = cosine_sim.argsort()[-15:][::-1]
+        
+        results = []
+        seen_ids = set()
+        
+        for idx in top_indices:
+            if cosine_sim[idx] > 0:
+                row = df.iloc[idx]
+                bid = str(row['book_id'])
+                results.append({
+                    "_id": bid,
+                    "title": str(row['title']),
+                    "author": str(row['authors']),
+                    "coverUrl": str(row['image_url']),
+                    "description": str(row['description'])[:150] + "..."
+                })
+                seen_ids.add(bid)
 
-        # --- PHASE 2: TF-IDF FALLBACK (If Semantic failed or returned too few) ---
-        if len(results) < 10 and tfidf_matrix is not None:
-            print(f"🔍 [Fallback-TFIDF] Idea: {idea}")
-            query_vec = vectorizer.transform([idea.lower()])
-            cosine_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
-            top_indices = cosine_sim.argsort()[-20:][::-1]
-            
-            for idx in top_indices:
-                if cosine_sim[idx] > 0.01: # Very low threshold to ensure WE FIND SOMETHING
-                    row = df.iloc[idx]
-                    bid = str(row['book_id'])
-                    if bid not in seen_ids:
-                        results.append({
-                            "_id": bid,
-                            "title": str(row['title']),
-                            "author": str(row['authors']),
-                            "coverUrl": str(row['image_url']),
-                            "description": str(row.get('description', ''))[:150] + "..."
-                        })
-                        seen_ids.add(bid)
-                if len(results) >= 15: break
-
-        # --- PHASE 3: KEYWORD BRUTE FORCE (Last resort) ---
-        if len(results) == 0:
-            print(f"🔍 [Fallback-BruteForce] Idea: {idea}")
-            words = idea.lower().split()
+        # Phase 2: Fuzzy Keyword Match (If vector search was too strict)
+        if len(results) < 10:
+            words = idea.split()
             for i, row in df.iterrows():
-                text = str(row['search_text'])
-                if any(word in text for word in words):
-                    bid = str(row['book_id'])
-                    if bid not in seen_ids:
-                        results.append({
-                            "_id": bid,
-                            "title": str(row['title']),
-                            "author": str(row['authors']),
-                            "coverUrl": str(row['image_url']),
-                            "description": str(row.get('description', ''))[:150] + "..."
-                        })
-                        seen_ids.add(bid)
                 if len(results) >= 15: break
+                bid = str(row['book_id'])
+                if bid in seen_ids: continue
+                
+                content = str(row['search_content'])
+                if any(word in content for word in words):
+                    results.append({
+                        "_id": bid,
+                        "title": str(row['title']),
+                        "author": str(row['authors']),
+                        "coverUrl": str(row['image_url']),
+                        "description": str(row['description'])[:150] + "..."
+                    })
+                    seen_ids.add(bid)
 
-        print(f"✅ Final Result Count: {len(results)}")
         return jsonify(results)
 
     except Exception as e:
-        print(f"❌ Critical AI Error: {e}")
+        print(f"Search Error: {e}")
         return jsonify([])
 
 if __name__ == '__main__':
