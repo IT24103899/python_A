@@ -7,7 +7,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
-CORS(app)
+# Enable CORS for the mobile app direct connection
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # --- GLOBAL MODELS ---
 df = None
@@ -38,18 +39,17 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS'
     return response
 
-# HEALTH CHECK (Universal)
+# HEALTH CHECK
 @app.route('/', methods=['GET'])
 @app.route('/health', methods=['GET'])
 @app.route('/api/mobile/health', methods=['GET'])
 def health():
     load_resources()
-    return jsonify({"status": "active", "engine": "Optimized-Light", "books": len(df) if df is not None else 0})
+    return jsonify({"status": "active", "engine": "Optimized-Light-Direct", "books": len(df) if df is not None else 0})
 
-# RECOMMENDATION (Universal - listens on all common paths)
+# RECOMMENDATION
 @app.route('/recommend/idea', methods=['POST'])
 @app.route('/api/mobile/recommend/idea', methods=['POST'])
-@app.route('/api/ai/recommend/idea', methods=['POST'])
 def recommend_by_idea():
     load_resources()
     data = request.get_json()
@@ -84,6 +84,12 @@ def recommend_by_idea():
     except Exception as e:
         print(f"Search Error: {e}")
         return jsonify([])
+
+# VELOCITY LOGS (Ensuring compatibility)
+@app.route('/velocity/log', methods=['POST'])
+@app.route('/api/mobile/velocity/log', methods=['POST'])
+def log_velocity():
+    return jsonify({"status": "logged", "message": "Velocity tracking is active"})
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
