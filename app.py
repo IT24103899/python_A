@@ -545,6 +545,89 @@ def list_routes():
     return jsonify({"routes": routes}), 200
 
 # ============================================
+# DEMO: ADD BOOK ENDPOINT
+# ============================================
+@app.route('/api/demo/add-book', methods=['POST', 'OPTIONS'])
+def demo_add_book():
+    """
+    Demo endpoint to show how to add a book
+    
+    Expected JSON:
+    {
+        "title": "The Great Gatsby",
+        "author": "F. Scott Fitzgerald",
+        "description": "A classic novel about wealth and love in the Jazz Age",
+        "cover_url": "https://covers.openlibrary.org/b/title/The%20Great%20Gatsby-M.jpg",
+        "average_rating": 3.9,
+        "original_publication_year": 1925,
+        "id": 12345
+    }
+    """
+    if request.method == 'OPTIONS':
+        return '', 204
+    
+    try:
+        data = request.json or {}
+        
+        # Extract book data
+        book_id = data.get('id', np.random.randint(100000, 999999))
+        title = data.get('title', 'Untitled')
+        author = data.get('author', 'Unknown')
+        description = data.get('description', '')
+        cover_url = data.get('cover_url', '')
+        rating = data.get('average_rating', 0)
+        pub_year = data.get('original_publication_year', 2024)
+        
+        # Create new book row
+        new_book = pd.DataFrame([{
+            'id': book_id,
+            'title': title,
+            'author': author,
+            'description': description,
+            'cover_url': cover_url,
+            'image_url': cover_url,
+            'average_rating': rating,
+            'original_publication_year': pub_year,
+            'authors': author,
+            'book_id': book_id
+        }])
+        
+        # Add to CSV in memory (for demo)
+        global df_csv
+        if df_csv is not None:
+            df_csv = pd.concat([df_csv, new_book], ignore_index=True)
+        else:
+            df_csv = new_book
+        
+        print(f"✅ Demo: Added book '{title}' (ID: {book_id})")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Book added to demo database",
+            "book": {
+                "id": book_id,
+                "title": title,
+                "author": author,
+                "description": description[:100] + "..." if len(description) > 100 else description,
+                "cover_url": cover_url,
+                "rating": rating,
+                "published": pub_year
+            },
+            "next_steps": [
+                "Use /api/recommend/<book_id> to get recommendations",
+                "Use /api/recommend/text with query to find similar books"
+            ]
+        }), 201
+    
+    except Exception as e:
+        print(f"❌ Error in demo/add-book: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# ============================================
 # READING VELOCITY & ANALYTICS ENDPOINTS
 # ============================================
 print("[DEBUG] Attempting to import velocity analyzer...")

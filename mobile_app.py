@@ -59,6 +59,7 @@ def recommend_by_idea():
     if not idea: return jsonify([])
 
     try:
+        # 1. Similarity Search (High Quality)
         query_vec = vectorizer.transform([idea])
         cosine_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
         top_indices = cosine_sim.argsort()[-15:][::-1]
@@ -66,23 +67,35 @@ def recommend_by_idea():
         results = []
         seen_ids = set()
         for idx in top_indices:
-            if cosine_sim[idx] > 0:
+            if cosine_sim[idx] > 0.05: # Lowered threshold slightly
                 row = df.iloc[idx]
                 bid = str(row['book_id'])
                 results.append({"_id": bid, "title": str(row['title']), "author": str(row['authors']), "coverUrl": str(row['image_url']), "description": str(row['description'])[:150] + "..."})
                 seen_ids.add(bid)
 
+        # 2. Broader Keyword Fallback (Handle Typos/Missing Similarity)
         if len(results) < 10:
-            words = idea.split()
+            words = [w for w in idea.split() if len(w) > 2] # Skip tiny words like 'a', 'of'
             for i, row in df.iterrows():
                 if len(results) >= 15: break
                 bid = str(row['book_id'])
-                if bid not in seen_ids and any(word in str(row['search_content']) for word in words):
-                    results.append({"_id": bid, "title": str(row['title']), "author": str(row['authors']), "coverUrl": str(row['image_url']), "description": str(row['description'])[:150] + "..."})
-                    seen_ids.add(bid)
+                if bid not in seen_ids:
+                    content = str(row['search_content'])
+                    # Check if at least one significant word matches or looks similar
+                    if any(word in content for word in words):
+                        results.append({"_id": bid, "title": str(row['title']), "author": str(row['authors']), "coverUrl": str(row['image_url']), "description": str(row['description'])[:150] + "..."})
+                        seen_ids.add(bid)
+
+        # 3. Last Resort: Random Popular (Ensures something always loads)
+        if len(results) == 0:
+            random_indices = np.random.choice(len(df), min(5, len(df)), replace=False)
+            for idx in random_indices:
+                row = df.iloc[idx]
+                results.append({"_id": str(row['book_id']), "title": str(row['title']), "author": str(row['authors']), "coverUrl": str(row['image_url']), "description": str(row['description'])[:150] + "..."})
+
         return jsonify(results)
     except Exception as e:
-        print(f"Search Error: {e}")
+        print(f"❌ Search Error: {e}")
         return jsonify([])
 
 # VELOCITY LOGS (Ensuring compatibility)
